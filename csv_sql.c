@@ -29,7 +29,7 @@ static void trim_newline(char *s) {
     }
 }
 
-static void read_line_stdin(char *buf, size_t size) {
+void read_line_stdin(char *buf, size_t size) {
     if (!buf || size == 0) return;
     if (fgets(buf, (int)size, stdin) == NULL) {
         buf[0] = '\0';
@@ -963,6 +963,7 @@ static void print_menu(void) {
     printf("Enter choice: ");
 }
 
+#ifndef FUZZING
 int main(void) {
     Table table;
     init_table(&table);
@@ -1091,3 +1092,4 @@ int main(void) {
     free_table(&table);
     return 0;
 }
+#endif
