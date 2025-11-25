@@ -73,6 +73,9 @@ static void check_column_unique(const Table *t) {
 }
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+    if (!data || size == 0) {
+        return 0;
+    }
     /* Redirect stdout to /dev/null */
     FILE *devnull = fopen("/dev/null", "w");
     if (!devnull) return 0;
@@ -98,15 +101,24 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         t.rows[r].cell_count = t.col_count;
 
         for (int c = 0; c < t.col_count; c++) {
-            size_t alloc = 4 + ((r + c) % 32);  /* random-ish size */
-            t.rows[r].cells[c] = malloc(alloc);
-            if (t.rows[r].cells[c]) {
-                size_t copy_len = alloc - 1;
-                memcpy(t.rows[r].cells[c],
-                       &data[(2 + r + c) % size],
-                       (copy_len <= size ? copy_len : size));
-                t.rows[r].cells[c][alloc - 1] = '\0';
-            }
+	size_t alloc = 4 + ((r + c) % 32);  /* random-ish size */
+	t.rows[r].cells[c] = malloc(alloc);
+	if (t.rows[r].cells[c]) {
+
+	    size_t copy_len = alloc - 1;  // leave space for null terminator
+
+	    size_t src_index = (2 + r + c) % size;   // starting point inside data
+	    size_t max_from_src = size - src_index;  // how many bytes left in data
+
+	    // copy only as much as available and allocated
+	    size_t to_copy = (copy_len < max_from_src) ? copy_len : max_from_src;
+
+	    if (to_copy > 0) {
+		memcpy(t.rows[r].cells[c], &data[src_index], to_copy);
+	    }
+
+	    t.rows[r].cells[c][to_copy] = '\0';  // safe null-termination
+	}
         }
     }
 
