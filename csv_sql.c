@@ -1,26 +1,3 @@
-/*
- * csv_sql.c
- *
- * Mini CSV project that provides SQL-like operations on a CSV file:
- *
- *  - Load CSV (first row = header)
- *  - Show summary
- *  - View first N rows           (like SELECT * LIMIT N)
- *  - View last N rows            (like ORDER BY ... DESC LIMIT N)
- *  - Insert 1 row                (INSERT INTO)
- *  - Delete 1 row (by column)    (DELETE FROM ... WHERE col = value LIMIT 1)
- *  - Update 1 row (by column)    (UPDATE ... SET ... WHERE col = value LIMIT 1)
- *  - Find row by value           (SELECT * WHERE col = value)
- *  - Max by column index         (SELECT MAX(col))
- *  - Min by column index         (SELECT MIN(col))
- *  - Sort ascending/descending   (ORDER BY col ASC/DESC)
- *  - Group by column             (SELECT col, COUNT(*) GROUP BY col)
- *
- * Core parser function:
- *    int parse_csv_line(const char *line, char *fields[], int max_fields);
- * which is used for fuzz testing with libFuzzer.
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,8 +20,6 @@ typedef struct {
     int row_count;
 } Table;
 
-/* ========== Utility ========== */
-
 static void trim_newline(char *s) {
     if (!s) return;
     size_t len = strlen(s);
@@ -63,7 +38,6 @@ static void read_line_stdin(char *buf, size_t size) {
     trim_newline(buf);
 }
 
-/* simple strdup replacement (standard C) */
 static char *str_dup(const char *s) {
     if (!s) return NULL;
     size_t len = strlen(s);
@@ -73,7 +47,6 @@ static char *str_dup(const char *s) {
     return p;
 }
 
-/* try to parse string as double; return 1 on success, 0 otherwise */
 static int parse_double(const char *s, double *out) {
     if (!s || !out) return 0;
     char *end = NULL;
@@ -82,8 +55,6 @@ static int parse_double(const char *s, double *out) {
     *out = v;
     return 1;
 }
-
-/* ========== Table management ========== */
 
 static void init_row(Row *r) {
     if (!r) return;
@@ -127,7 +98,6 @@ static void free_table(Table *t) {
     t->row_count = 0;
 }
 
-/* print a row like SQL result */
 static void print_row(const Table *t, const Row *r) {
     if (!t || !r) return;
     for (int i = 0; i < t->col_count; i++) {
@@ -138,7 +108,6 @@ static void print_row(const Table *t, const Row *r) {
     printf("\n");
 }
 
-/* print header line */
 static void print_header(const Table *t) {
     if (!t) return;
     for (int i = 0; i < t->col_count; i++) {
@@ -148,22 +117,12 @@ static void print_header(const Table *t) {
     printf("\n");
 }
 
-/* ========== CSV parser (good for fuzzing) ========== */
-/*
- * Simple CSV parsing without quotes:
- * splits on ',' into at most max_fields fields.
- * Trims trailing newline; leading/trailing spaces are kept as-is.
- *
- * Returns number of fields (>=1) on success, 0 on failure.
- */
 int parse_csv_line(const char *line, char *fields[], int max_fields) {
     if (!line || !fields || max_fields <= 0) return 0;
 
-    /* make a modifiable copy */
     char buffer[MAX_LINE_LEN];
     size_t len = strlen(line);
     if (len >= sizeof(buffer)) {
-        /* too long */
         return 0;
     }
     strcpy(buffer, line);
@@ -176,14 +135,12 @@ int parse_csv_line(const char *line, char *fields[], int max_fields) {
             *comma = '\0';
             fields[count] = str_dup(p);
             if (!fields[count]) {
-                /* free on error */
                 for (int i = 0; i < count; i++) free(fields[i]);
                 return 0;
             }
             count++;
             p = comma + 1;
         } else {
-            /* last field */
             fields[count] = str_dup(p);
             if (!fields[count]) {
                 for (int i = 0; i < count; i++) free(fields[i]);
@@ -193,19 +150,16 @@ int parse_csv_line(const char *line, char *fields[], int max_fields) {
             break;
         }
     }
-    /* ignore extra fields beyond max_fields */
+
     return count;
 }
 
-/* helper to free array of field strings */
 static void free_fields(char *fields[], int count) {
     for (int i = 0; i < count; i++) {
         free(fields[i]);
         fields[i] = NULL;
     }
 }
-
-/* ========== Load CSV ========== */
 
 static int load_csv(const char *filename, Table *t) {
     if (!filename || !t) return 0;
@@ -221,7 +175,6 @@ static int load_csv(const char *filename, Table *t) {
 
     char line[MAX_LINE_LEN];
 
-    /* header */
     if (!fgets(line, sizeof(line), f)) {
         fclose(f);
         printf("CSV file is empty.\n");
@@ -238,14 +191,12 @@ static int load_csv(const char *filename, Table *t) {
     }
     t->col_count = field_count;
     for (int i = 0; i < field_count; i++) {
-        t->col_names[i] = fields[i]; /* take ownership */
+        t->col_names[i] = fields[i];
     }
 
-    /* data rows */
     while (fgets(line, sizeof(line), f)) {
         trim_newline(line);
-        if (line[0] == '\0') continue; /* skip empty */
-
+        if (line[0] == '\0') continue;
         if (t->row_count >= MAX_ROWS) {
             printf("Reached max rows (%d). Remaining lines are ignored.\n", MAX_ROWS);
             break;
@@ -261,10 +212,9 @@ static int load_csv(const char *filename, Table *t) {
         init_row(r);
         r->cell_count = count;
         for (int i = 0; i < count; i++) {
-            r->cells[i] = fields[i];  /* take ownership */
+            r->cells[i] = fields[i];
         }
         t->row_count++;
-        /* do not free fields[i]; now owned by row */
     }
 
     fclose(f);
@@ -272,8 +222,6 @@ static int load_csv(const char *filename, Table *t) {
            t->row_count, t->col_count, filename);
     return 1;
 }
-
-/* ========== Summary, first/last N ========== */
 
 static void show_summary(const Table *t) {
     if (!t || t->col_count == 0) {
@@ -318,8 +266,6 @@ static void view_last_n(const Table *t, int n) {
     }
 }
 
-/* ========== Insert row (like INSERT INTO) ========== */
-
 static void insert_row(Table *t) {
     if (!t || t->col_count == 0) {
         printf("No table loaded.\n");
@@ -345,8 +291,6 @@ static void insert_row(Table *t) {
     printf("Row inserted at index %d.\n", t->row_count - 1);
 }
 
-/* ========== Helper: find first row where column == value ========== */
-
 static int find_row_index_by_value(const Table *t, int col_index, const char *value) {
     if (!t || col_index < 0 || col_index >= t->col_count || !value) return -1;
     for (int i = 0; i < t->row_count; i++) {
@@ -358,8 +302,6 @@ static int find_row_index_by_value(const Table *t, int col_index, const char *va
     }
     return -1;
 }
-
-/* ========== Delete 1 row (DELETE FROM ... WHERE col = value LIMIT 1) ========== */
 
 static void delete_one_row(Table *t) {
     if (!t || t->col_count == 0) {
@@ -395,8 +337,6 @@ static void delete_one_row(Table *t) {
     t->row_count--;
     printf("Row deleted.\n");
 }
-
-/* ========== Update 1 row (UPDATE ... WHERE col = value LIMIT 1) ========== */
 
 static void update_one_row(Table *t) {
     if (!t || t->col_count == 0) {
@@ -440,8 +380,6 @@ static void update_one_row(Table *t) {
     print_row(t, r);
 }
 
-/* ========== Find row by column value (SELECT * WHERE col = value) ========== */
-
 static void find_rows_by_value(const Table *t) {
     if (!t || t->col_count == 0) {
         printf("No table loaded.\n");
@@ -474,7 +412,179 @@ static void find_rows_by_value(const Table *t) {
     }
 }
 
-/* ========== MAX / MIN by column (numeric) ========== */
+int find_rows_by_substring(const Table *t,
+                           int col,
+                           const char *pattern,
+                           int out_indices[],
+                           int max_out) {
+    if (!t || !pattern || !out_indices || max_out <= 0) return 0;
+    if (col < 0 || col >= t->col_count) return 0;
+    if (pattern[0] == '\0') return 0;
+
+    int count = 0;
+
+    for (int i = 0; i < t->row_count; i++) {
+        const Row *r = &t->rows[i];
+        const char *cell = (col < r->cell_count && r->cells[col])
+                           ? r->cells[col] : "";
+
+        if (strstr(cell, pattern) != NULL) {
+            if (count < max_out) {
+                out_indices[count] = i;
+            }
+            count++;
+        }
+    }
+
+    return count;
+}
+
+int find_rows_in_range(const Table *t,
+                       int col,
+                       double min_val,
+                       double max_val,
+                       int out_indices[],
+                       int max_out) {
+    if (!t || !out_indices || max_out <= 0) return 0;
+    if (col < 0 || col >= t->col_count) return 0;
+
+    if (min_val > max_val) {
+        double tmp = min_val;
+        min_val = max_val;
+        max_val = tmp;
+    }
+
+    int count = 0;
+
+    for (int i = 0; i < t->row_count; i++) {
+        const Row *r = &t->rows[i];
+        const char *cell = (col < r->cell_count && r->cells[col])
+                           ? r->cells[col] : "";
+
+        double v;
+        if (!parse_double(cell, &v)) {
+            continue;
+        }
+
+        if (v >= min_val && v <= max_val) {
+            if (count < max_out) {
+                out_indices[count] = i;
+            }
+            count++;
+        }
+    }
+
+    return count;
+}
+
+static void find_rows_like(const Table *t) {
+    if (!t || t->col_count == 0) {
+        printf("No table loaded.\n");
+        return;
+    }
+
+    char buf[64];
+    printf("Enter column index for LIKE (0..%d): ", t->col_count - 1);
+    read_line_stdin(buf, sizeof(buf));
+    int col = atoi(buf);
+    if (col < 0 || col >= t->col_count) {
+        printf("Invalid column index.\n");
+        return;
+    }
+
+    char pattern[MAX_FIELD_LEN];
+    printf("Enter substring pattern: ");
+    read_line_stdin(pattern, sizeof(pattern));
+
+    if (pattern[0] == '\0') {
+        printf("Empty pattern; nothing to search.\n");
+        return;
+    }
+
+    int indices[MAX_ROWS];
+    int count = find_rows_by_substring(t, col, pattern, indices, MAX_ROWS);
+
+    if (count == 0) {
+        printf("No rows matched pattern '%s' in column %d.\n", pattern, col);
+        return;
+    }
+
+    printf("\nRows where col[%d] CONTAINS \"%s\":\n", col, pattern);
+    print_header(t);
+    int to_print = (count < MAX_ROWS) ? count : MAX_ROWS;
+    for (int i = 0; i < to_print; i++) {
+        print_row(t, &t->rows[indices[i]]);
+    }
+    if (count > MAX_ROWS) {
+        printf("(Only first %d matches shown; total matches: %d)\n",
+               MAX_ROWS, count);
+    }
+}
+
+static void find_rows_between(const Table *t) {
+    if (!t || t->col_count == 0) {
+        printf("No table loaded.\n");
+        return;
+    }
+
+    char buf[64];
+    printf("Enter column index for BETWEEN (0..%d): ", t->col_count - 1);
+    read_line_stdin(buf, sizeof(buf));
+    int col = atoi(buf);
+    if (col < 0 || col >= t->col_count) {
+        printf("Invalid column index.\n");
+        return;
+    }
+
+    char min_str[64], max_str[64];
+    double min_val, max_val;
+
+    printf("Enter MIN value: ");
+    read_line_stdin(min_str, sizeof(min_str));
+    if (!parse_double(min_str, &min_val)) {
+        printf("Invalid MIN value.\n");
+        return;
+    }
+
+    printf("Enter MAX value: ");
+    read_line_stdin(max_str, sizeof(max_str));
+    if (!parse_double(max_str, &max_val)) {
+        printf("Invalid MAX value.\n");
+        return;
+    }
+
+    int indices[MAX_ROWS];
+    int count = find_rows_in_range(t, col, min_val, max_val, indices, MAX_ROWS);
+
+    if (count == 0) {
+        if (min_val > max_val) {
+            double tmp = min_val;
+            min_val = max_val;
+            max_val = tmp;
+        }
+        printf("No rows found with col[%d] in [%.3f, %.3f].\n",
+               col, min_val, max_val);
+        return;
+    }
+
+    if (min_val > max_val) {
+        double tmp = min_val;
+        min_val = max_val;
+        max_val = tmp;
+    }
+
+    printf("\nRows where col[%d] is BETWEEN %.3f AND %.3f:\n",
+           col, min_val, max_val);
+    print_header(t);
+    int to_print = (count < MAX_ROWS) ? count : MAX_ROWS;
+    for (int i = 0; i < to_print; i++) {
+        print_row(t, &t->rows[indices[i]]);
+    }
+    if (count > MAX_ROWS) {
+        printf("(Only first %d matches shown; total matches: %d)\n",
+               MAX_ROWS, count);
+    }
+}
 
 static void max_by_column(const Table *t) {
     if (!t || t->col_count == 0) {
@@ -512,8 +622,6 @@ static void max_by_column(const Table *t) {
         print_row(t, &t->rows[best_idx]);
     }
 }
-
-/* ========== SUM / AVG of numeric column ========== */
 
 static void sum_avg_column(const Table *t) {
     if (!t || t->col_count == 0) {
@@ -568,8 +676,6 @@ static void sum_avg_column(const Table *t) {
     printf("\n");
 }
 
-/* ========== Check duplicates in a column (like PRIMARY KEY check) ========== */
-
 static void check_column_unique(const Table *t) {
     if (!t || t->col_count == 0) {
         printf("No table loaded.\n");
@@ -597,10 +703,9 @@ static void check_column_unique(const Table *t) {
                          ? ri->cells[col] : "";
 
         if (vi[0] == '\0') {
-            continue; /* ignore empty */
+            continue;
         }
 
-        /* check if this value appears later */
         for (int j = i + 1; j < t->row_count; j++) {
             const Row *rj = &t->rows[j];
             const char *vj = (col < rj->cell_count && rj->cells[col])
@@ -622,8 +727,6 @@ static void check_column_unique(const Table *t) {
 
     printf("\n");
 }
-
-
 
 static void min_by_column(const Table *t) {
     if (!t || t->col_count == 0) {
@@ -662,13 +765,10 @@ static void min_by_column(const Table *t) {
     }
 }
 
-/* ========== Sorting (ORDER BY col ASC/DESC) ========== */
-
 static int compare_rows_by_col(const Table *t, const Row *a, const Row *b, int col, int asc) {
     const char *ca = (col < a->cell_count && a->cells[col]) ? a->cells[col] : "";
     const char *cb = (col < b->cell_count && b->cells[col]) ? b->cells[col] : "";
 
-    /* try numeric comparison */
     double va, vb;
     int na = parse_double(ca, &va);
     int nb = parse_double(cb, &vb);
@@ -705,8 +805,6 @@ static void sort_by_column(Table *t, int col, int asc) {
     }
     printf("Sorted by column %d (%s).\n", col, asc ? "ASC" : "DESC");
 }
-
-/* ========== GROUP BY column (SELECT col, COUNT(*) GROUP BY col) ========== */
 
 typedef struct {
     char *value;
@@ -762,8 +860,6 @@ static void group_by_column(const Table *t) {
     }
 }
 
-/* ========== DISTINCT values of a column (SELECT DISTINCT col) ========== */
-
 static void show_distinct_values(const Table *t) {
     if (!t || t->col_count == 0) {
         printf("No table loaded.\n");
@@ -779,7 +875,6 @@ static void show_distinct_values(const Table *t) {
         return;
     }
 
-    /* Store pointers to unique values we've seen so far */
     const char *seen[MAX_ROWS];
     int seen_count = 0;
 
@@ -788,7 +883,6 @@ static void show_distinct_values(const Table *t) {
         const char *cell = (col < r->cell_count && r->cells[col])
                            ? r->cells[col] : "";
 
-        /* Check if we've already seen this value */
         int already = 0;
         for (int j = 0; j < seen_count; j++) {
             if (strcmp(seen[j], cell) == 0) {
@@ -814,9 +908,6 @@ static void show_distinct_values(const Table *t) {
     printf("Total distinct values: %d\n", seen_count);
 }
 
-
-/* ========== Save back to CSV (optional) ========== */
-
 static void save_csv(const char *filename, const Table *t) {
     if (!t || t->col_count == 0) {
         printf("No table loaded.\n");
@@ -827,13 +918,11 @@ static void save_csv(const char *filename, const Table *t) {
         perror("Error opening output CSV");
         return;
     }
-    /* header */
     for (int i = 0; i < t->col_count; i++) {
         fprintf(f, "%s", t->col_names[i] ? t->col_names[i] : "");
         if (i + 1 < t->col_count) fputc(',', f);
     }
     fputc('\n', f);
-    /* rows */
     for (int i = 0; i < t->row_count; i++) {
         Row const *r = &t->rows[i];
         for (int c = 0; c < t->col_count; c++) {
@@ -846,8 +935,6 @@ static void save_csv(const char *filename, const Table *t) {
     fclose(f);
     printf("Saved table to '%s'.\n", filename);
 }
-
-/* ========== Menu ========== */
 
 static void print_menu(void) {
     printf("\n=========== CSV-SQL MENU ===========\n");
@@ -867,14 +954,14 @@ static void print_menu(void) {
     printf("14. Sort DESC by column\n");
     printf("15. GROUP BY column\n");
     printf("16. DISTINCT values of a column\n");
-    printf("17. Save table to CSV\n");
-    printf("18. Exit\n");
+    printf("17. Find rows where column CONTAINS substring (LIKE)\n");
+    printf("18. Find rows where numeric column is BETWEEN min and max\n");
+    printf("19. Save table to CSV\n");
+    printf("20. Exit\n");
 
     printf("====================================\n");
     printf("Enter choice: ");
 }
-
-/* ========== main ========== */
 
 int main(void) {
     Table table;
@@ -973,6 +1060,14 @@ int main(void) {
                 break;
                 }
             case 17: {
+                find_rows_like(&table);
+                break;
+            }
+            case 18: {
+                find_rows_between(&table);
+                break;
+            }
+            case 19: {
                 char filename[256];
                 printf("Enter filename to save CSV: ");
                 read_line_stdin(filename, sizeof(filename));
@@ -983,7 +1078,7 @@ int main(void) {
                 }
                 break;
             }
-            case 18:{
+            case 20:{
                 running = 0;
                 break;
                 }
