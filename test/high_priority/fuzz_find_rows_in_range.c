@@ -1,121 +1,75 @@
 #include <stdint.h>
 #include <stddef.h>
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
 #include <stdio.h>
 
-#define MAX_COLS 32
-#define MAX_ROWS 1024
+/* Import the REAL implementation */
+#include "../../csv_sql.c"
 
-typedef struct {
-    char *cells[MAX_COLS];
-    int cell_count;
-} Row;
-
-typedef struct {
-    int col_count;
-    int row_count;
-    char *col_names[MAX_COLS];
-    Row rows[MAX_ROWS];
-} Table;
-
-/* from your project */
-int find_rows_in_range(const Table *t,
-                       int col,
-                       double min_val,
-                       double max_val,
-                       int out_indices[],
-                       int max_out);
-
-int parse_double(const char *s, double *out);
-
-/* ---------------------------- */
-/*       FUZZER ENTRYPOINT      */
-/* ---------------------------- */
-
-int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
-    if (size < 8) return 0;
-
-    /* ------------------------- */
-    /*   BUILD A VALID TABLE     */
-    /* ------------------------- */
+int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
+{
+    if (size < 4) return 0;
 
     Table t;
 
-    t.col_count = (data[0] % MAX_COLS);
+    t.col_count = data[0] % (MAX_COLS + 1);
     if (t.col_count == 0) t.col_count = 1;
 
-    t.row_count = (data[1] % MAX_ROWS);
+    t.row_count = data[1] % (MAX_ROWS + 1);
     if (t.row_count == 0) t.row_count = 1;
 
-    /* allocate column names */
+    /* Column names */
     for (int i = 0; i < t.col_count; i++) {
         t.col_names[i] = malloc(8);
         strcpy(t.col_names[i], "col");
     }
 
-    /* fill rows with fuzzer-controlled strings */
+    /* Rows and cells */
     for (int r = 0; r < t.row_count; r++) {
         t.rows[r].cell_count = t.col_count;
 
         for (int c = 0; c < t.col_count; c++) {
-            size_t alloc_len = 4 + (data[(2 + r + c) % size] % 32);
-            char *buf = malloc(alloc_len);
-            if (buf) {
-                size_t copy_len = alloc_len - 1;
-                memcpy(buf,
-                       &data[(3 + r + c) % size],
-                       (copy_len < size ? copy_len : size));
-                buf[alloc_len - 1] = '\0';
+
+            size_t alloc = 4 + ((r + c) % 32);
+            t.rows[r].cells[c] = malloc(alloc);
+
+            if (t.rows[r].cells[c]) {
+                size_t usable = alloc - 1;
+                size_t idx = (2 + r + c) % size;
+                size_t available = size - idx;
+                size_t n = usable < available ? usable : available;
+
+                memcpy(t.rows[r].cells[c], &data[idx], n);
+                t.rows[r].cells[c][n] = '\0';
             }
-            t.rows[r].cells[c] = buf;
         }
     }
 
-    /* ------------------------- */
-    /*  PICK RANGE AND COLUMN    */
-    /* ------------------------- */
+    int col = data[2] % t.col_count;
 
-    int col_index = data[2] % t.col_count;
-
-    /* fuzz numeric values */
-    double min_val = 0;
-    double max_val = 0;
-
-    /* interpret two chunks of fuzz bytes as double-ish strings */
+    /* fuzz min and max values */
+    double min_val = 0, max_val = 0;
     char min_buf[32], max_buf[32];
+
     size_t half = size / 2;
+    size_t ml = (half < 31 ? half : 31);
+    memcpy(min_buf, data, ml);
+    min_buf[ml] = '\0';
 
-    size_t min_len = (half < sizeof(min_buf) - 1) ? half : (sizeof(min_buf) - 1);
-    memcpy(min_buf, data, min_len);
-    min_buf[min_len] = '\0';
-
-    size_t max_len = (size - half < sizeof(max_buf) - 1) ? (size - half) : (sizeof(max_buf) - 1);
-    memcpy(max_buf, data + half, max_len);
-    max_buf[max_len] = '\0';
+    size_t xl = (size - half < 31 ? size - half : 31);
+    memcpy(max_buf, data + half, xl);
+    max_buf[xl] = '\0';
 
     parse_double(min_buf, &min_val);
     parse_double(max_buf, &max_val);
 
-    int *indices = malloc(MAX_ROWS * sizeof(int));
+    int indices[MAX_ROWS];
 
-    /* ------------------------- */
-    /*     CALL TARGET FUNC      */
-    /* ------------------------- */
+    /* CALL REAL FUNCTION */
+    find_rows_in_range(&t, col, min_val, max_val, indices, MAX_ROWS);
 
-    find_rows_in_range(&t,
-                       col_index,
-                       min_val,
-                       max_val,
-                       indices,
-                       MAX_ROWS);
-
-    /* ------------------------- */
-    /*         CLEANUP           */
-    /* ------------------------- */
-
-    free(indices);
-
+    /* cleanup */
     for (int i = 0; i < t.col_count; i++)
         free(t.col_names[i]);
 
@@ -125,3 +79,4 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
 
     return 0;
 }
+
