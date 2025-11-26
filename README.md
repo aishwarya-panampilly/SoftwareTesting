@@ -261,32 +261,32 @@ If a crash is found, LibFuzzer writes a test case (e.g. crash-* file) that can b
 
 ## 9. Team Contributions
 
-This project was completed by a two-member team.
+1. Aishwarya Panampilly (MT2024011)
 
-Member 1
+- Implemented the core csv_sql.c program
+- Fuzzer Files Developed
+     - fuzz_parse_csv_line.c
+     - fuzz_parse_double.c
+     - fuzz_load_csv.c
+     - fuzz_group_by_column.c
+     - fuzz_show_distinct_values.c
+     - fuzz_sort_by_column.c<br>
+  These fuzzers target core parsing and table-manipulation functions—critical for correctness and memory safety.
 
-Implemented and refactored the main csv_sql.c functionality:
-loading CSV, viewing rows, aggregates, sorting, GROUP BY, DISTINCT, and duplicate checking.
+2. Gitika Pinjani (MT2024052)
 
-Added conditional compilation around main() using #ifndef FUZZING to make the code compatible with LibFuzzer.
-
-Helped design the overall testing strategy and selected which functions should be fuzzed.
-
-Reviewed and executed fuzzing runs and checked for crashes or sanitizer reports.
-
-Member 2
-
-Wrote the individual fuzz harnesses:
-fuzz_check_column_unique.c,
-fuzz_compare_rows_by_col.c, and the other fuzz_*.c files.
-
-Implemented the table-building logic inside fuzzers (allocating cells, mapping bytes to strings).
-
-Configured the use of fake stdin and redirecting stdout to /dev/null to integrate with interactive functions.
-
-Managed compilation commands and organized high-priority fuzz targets.
-
-Both members collaborated on interpreting fuzzing results, cleaning up code, and preparing this report.
+- Fuzzer Files Developed
+     - fuzz_check_column_unique.c
+     - fuzz_compare_rows_by_col.c
+     - fuzz_find_rows_between.c
+     - fuzz_find_rows_in_range.c
+     - fuzz_find_rows_like.c
+     - fuzz_find_rows_by_substring.c
+     - fuzz_max_by_column.c
+     - fuzz_min_by_column.c
+     - fuzz_sum_avg_column.c<br>
+These focus on logic-heavy and computation-heavy features.
+- prepared the final project report.
 
 ---
 
